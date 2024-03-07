@@ -1,0 +1,158 @@
+{
+  "_comment": "Example configuration input to launch_benckmark.py",
+  "niters": 10,
+  "validation": true,
+  "output_fn": "result.json",
+  "jobs": [
+    {
+      "type": "CPU_READ_CPUMEM",
+      "host": "a0",
+      "cpu_numa_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864,
+      "rank": 0
+    },
+    {
+      "type": "CPU_WRITE_CPUMEM",
+      "host": "a0",
+      "cpu_numa_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864,
+      "rank": 1
+    },
+    {
+      "type": "GPU_READ_CPUMEM_WITH_KERNEL",
+      "host": "a0",
+      "gpu_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864,
+      "rank": 2
+    },
+    {
+      "type": "GPU_WRITE_CPUMEM_WITH_KERNEL",
+      "host": "a0",
+      "gpu_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864,
+      "rank": 3
+    },
+    {
+      "type": "GPU_READ_GPUMEM_WITH_KERNEL",
+      "host": "a0",
+      "gpu_idx": 0,
+      "gpumem_idx": 0,
+      "nbytes": 67108864,
+      "rank": 4
+    },
+    {
+      "type": "GPU_WRITE_GPUMEM_WITH_KERNEL",
+      "host": "a0",
+      "gpu_idx": 0,
+      "gpumem_idx": 0,
+      "nbytes": 67108864,
+      "rank": 5
+    },
+    {
+      "type": "GPU_READ_CPUMEM_WITH_MEMCPY",
+      "host": "a0",
+      "gpu_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864,
+      "rank": 6
+    },
+    {
+      "type": "GPU_WRITE_CPUMEM_WITH_MEMCPY",
+      "host": "a0",
+      "gpu_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864,
+      "rank": 7
+    },
+    {
+      "type": "GPU_READ_GPUMEM_WITH_MEMCPY",
+      "host": "a0",
+      "gpu_idx": 0,
+      "gpumem_idx": 0,
+      "nbytes": 67108864,
+      "rank": 8
+    },
+    {
+      "type": "GPU_WRITE_GPUMEM_WITH_MEMCPY",
+      "host": "a0",
+      "gpu_idx": 0,
+      "gpumem_idx": 0,
+      "nbytes": 67108864,
+      "rank": 9
+    },
+    {
+      "type": "NIC_READ_CPUMEM",
+      "nbytes": 67108864,
+      "rank": 10,
+      "peer_rank": 11,
+      "host": "a0",
+      "nic_idx": 0,
+      "device": "cpumem",
+      "cpumem_numa_idx": 0
+    },
+    {
+      "type": "NIC_WRITE_CPUMEM",
+      "nbytes": 67108864,
+      "rank": 11,
+      "peer_rank": 10,
+      "host": "a1",
+      "nic_idx": 0,
+      "device": "cpumem",
+      "cpumem_numa_idx": 0
+    },
+    {
+      "type": "NIC_READ_GPUMEM",
+      "nbytes": 67108864,
+      "rank": 12,
+      "peer_rank": 13,
+      "host": "a0",
+      "nic_idx": 0,
+      "device": "gpumem",
+      "gpumem_idx": 0
+    },
+    {
+      "type": "NIC_WRITE_GPUMEM",
+      "nbytes": 67108864,
+      "rank": 13,
+      "peer_rank": 12,
+      "host": "a1",
+      "nic_idx": 0,
+      "device": "gpumem",
+      "gpumem_idx": 0
+    },
+    {
+      "type": "NIC_SHARP_ALLREDUCE",
+      "nbytes": 67108864,
+      "rank": 14,
+      "peer_rank": [
+        14,
+        15
+      ],
+      "host": "a0",
+      "nic_idx": 0,
+      "src_device": "gpumem",
+      "dst_device": "cpumem",
+      "src_gpumem_idx": 0,
+      "dst_cpumem_numa_idx": 0
+    },
+    {
+      "type": "NIC_SHARP_ALLREDUCE",
+      "nbytes": 67108864,
+      "rank": 15,
+      "peer_rank": [
+        14,
+        15
+      ],
+      "host": "a1",
+      "nic_idx": 0,
+      "src_device": "gpumem",
+      "dst_device": "cpumem",
+      "src_gpumem_idx": 0,
+      "dst_cpumem_numa_idx": 0
+    }
+  ]
+}

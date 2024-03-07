@@ -1,0 +1,71 @@
+2
+2 0 0 0
+2 1 1 1
+
+[format]
+num_processes
+proc1_num_args job_id arg1 arg2 ... argM
+...
+procN_num_args job_id arg1 arg2 ... argM
+
+
+6 0 0 67108864
+9 0 2 33554432
+
+9 0 1
+9 1 2
+9 2 3
+9 3 0
+
+7 0 0
+8 2 0
+
+0 0 1
+6 2 1
+6 3 1
+
+7 0 0
+8 2 0
+
+8 1 2
+6 2 0
+
+5 2 1
+6 2 0
+
+4 1 2
+6 2 0
+
+6 0 0
+6 0 0
+
+# conflict
+2 2 0 # GPU 2 read NUMA 0
+4 1 2 # GPU 1 read GPU 2
+
+3 0 0
+
+
+4 0 1
+2 1 1
+2 2 1
+2 3 0
+1 0 0
+0 0 0
+0 0 0
+0 0 0
+0 0 0
+0 0 0
+0 0 0
+
+a2 topology
+GPU0 -> NUMA1
+GPU1 -> NUMA1
+GPU2 -> NUMA0
+GPU3 -> NUMA0
+
+a3 topology
+GPU0 -> NUMA3
+GPU1 -> NUMA1
+GPU2 -> NUMA1
+GPU3 -> NUMA0

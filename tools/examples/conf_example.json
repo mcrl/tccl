@@ -1,0 +1,136 @@
+{
+  "_comment": "Example configuration input to launch_benckmark.py",
+  "niters": 10,
+  "validation": true,
+  "output_fn": "result.json",
+  "jobs": [
+    {
+      "type": "CPU_READ_CPUMEM",
+      "host": "a0",
+      "cpu_numa_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864
+    },
+    {
+      "type": "CPU_WRITE_CPUMEM",
+      "host": "a0",
+      "cpu_numa_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864
+    },
+    {
+      "type": "GPU_READ_CPUMEM_KERNEL",
+      "host": "a0",
+      "gpu_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864
+    },
+    {
+      "type": "GPU_WRITE_CPUMEM_KERNEL",
+      "host": "a0",
+      "gpu_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864
+    },
+    {
+      "type": "GPU_READ_GPUMEM_KERNEL",
+      "host": "a0",
+      "gpu_idx": 0,
+      "gpumem_idx": 0,
+      "nbytes": 67108864
+    },
+    {
+      "type": "GPU_WRITE_GPUMEM_KERNEL",
+      "host": "a0",
+      "gpu_idx": 0,
+      "gpumem_idx": 0,
+      "nbytes": 67108864
+    },
+    {
+      "type": "GPU_READ_CPUMEM_MEMCPY",
+      "host": "a0",
+      "gpu_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864
+    },
+    {
+      "type": "GPU_WRITE_CPUMEM_MEMCPY",
+      "host": "a0",
+      "gpu_idx": 0,
+      "cpumem_numa_idx": 0,
+      "nbytes": 67108864
+    },
+    {
+      "type": "GPU_READ_GPUMEM_MEMCPY",
+      "host": "a0",
+      "gpu_idx": 0,
+      "gpumem_idx": 0,
+      "nbytes": 67108864
+    },
+    {
+      "type": "GPU_WRITE_GPUMEM_MEMCPY",
+      "host": "a0",
+      "gpu_idx": 0,
+      "gpumem_idx": 0,
+      "nbytes": 67108864
+    },
+    {
+      "type": "NIC_SENDRECV",
+      "nbytes": 67108864,
+      "peers": [
+        {
+          "host": "a0",
+          "nic_idx": 0,
+          "device": "cpumem",
+          "cpumem_numa_idx": 0
+        },
+        {
+          "host": "a1",
+          "nic_idx": 0,
+          "device": "cpumem",
+          "cpumem_numa_idx": 0
+        }
+      ]
+    },
+    {
+      "type": "NIC_SENDRECV",
+      "nbytes": 67108864,
+      "peers": [
+        {
+          "host": "a0",
+          "nic_idx": 0,
+          "device": "gpumem",
+          "gpumem_idx": 0
+        },
+        {
+          "host": "a1",
+          "nic_idx": 0,
+          "device": "gpumem",
+          "gpumem_idx": 0
+        }
+      ]
+    },
+    {
+      "type": "NIC_SHARP_ALLREDUCE",
+      "nbytes": 67108864,
+      "peers": [
+        {
+          "host": "a0",
+          "nic_idx": 0,
+          "src_device": "gpumem",
+          "dst_device": "cpumem",
+          "src_gpumem_idx": 0,
+          "dst_cpumem_numa_idx": 0
+        },
+        {
+          "host": "a1",
+          "nic_idx": 0,
+          "src_device": "gpumem",
+          "dst_device": "cpumem",
+          "src_gpumem_idx": 0,
+          "dst_cpumem_numa_idx": 0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+<root>
+<intra>
+  <subset gpus="3">
+    <transfers gbps="5.9">
+    <transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="0" dst_idx="1"/>
+    <transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="1" dst_idx="0"/>
+    <!--
+    <transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_idx="0" dst_idx="1"/>
+    <transfer type="GPU_READ_CPUMEM_MEMCPY" src_idx="1" dst_idx="1"/>
+    <transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_idx="1" dst_idx="1"/>
+    <transfer type="GPU_READ_CPUMEM_MEMCPY" src_idx="1" dst_idx="0"/>
+    -->
+    </transfers>
+  </subset>
+  <subset gpus="9">
+    <transfers gbps="5.9">
+    <transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="0" dst_idx="3"/>
+    <transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="3" dst_idx="0"/>
+    </transfers>
+  </subset>
+  <subset gpus="5">
+    <transfers gbps="5.9">
+    <transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="0" dst_idx="2"/>
+    <transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="2" dst_idx="0"/>
+    </transfers>
+  </subset>
+</intra>
+<inter>
+<subset gpus="15">
+<!--
+<transfers head_type="GPU_GPU_INTER" head_src_idx="2" head_dst_idx="2" tail_type="GPU_GPU_INTER" tail_src_idx="0" tail_dst_idx="1" gbps="9">
+      <transfer type="GPU_WRITE_CPUMEM_KERNEL" src_node="0" dst_node="0" src_idx="2" dst_idx="3" nbytes="16777216"/>
+      <transfer type="GPU_READ_CPUMEM_KERNEL" src_node="0" dst_node="0" src_idx="3" dst_idx="1" nbytes="16777216"/>
+      <transfer type="GPU_WRITE_CPUMEM_KERNEL" src_node="0" dst_node="0" src_idx="1" dst_idx="1" nbytes="16777216"/>
+      <transfer type="GPU_READ_CPUMEM_KERNEL" src_node="0" dst_node="0" src_idx="1" dst_idx="3" nbytes="16777216"/>
+      <transfer type="GPU_WRITE_CPUMEM_KERNEL" src_node="0" dst_node="0" src_idx="3" dst_idx="3" nbytes="16777216"/>
+      <transfer type="GPU_READ_CPUMEM_KERNEL" src_node="0" dst_node="0" src_idx="3" dst_idx="0" nbytes="16777216"/>
+      </transfers>
+<transfers head_type="GPU_GPU_INTER" head_src_idx="0" head_dst_idx="1" tail_type="GPU_GPU_INTER" tail_src_idx="2" tail_dst_idx="2" gbps="9">
+        <transfer type="GPU_WRITE_CPUMEM_KERNEL" src_node="1" dst_node="1" src_idx="1" dst_idx="0" nbytes="16777216"/>
+        <transfer type="GPU_READ_CPUMEM_KERNEL" src_node="1" dst_node="1" src_idx="0" dst_idx="3" nbytes="16777216"/>
+        <transfer type="GPU_WRITE_CPUMEM_KERNEL" src_node="1" dst_node="1" src_idx="3" dst_idx="3" nbytes="16777216"/>
+        <transfer type="GPU_READ_CPUMEM_KERNEL" src_node="1" dst_node="1" src_idx="3" dst_idx="0" nbytes="16777216"/>
+        <transfer type="GPU_WRITE_CPUMEM_KERNEL" src_node="1" dst_node="1" src_idx="0" dst_idx="1" nbytes="16777216"/>
+        <transfer type="GPU_READ_CPUMEM_KERNEL" src_node="1" dst_node="1" src_idx="1" dst_idx="2" nbytes="16777216"/>
+      </transfers>
+-->
+<transfers head_type="CPU_CPU_INTER" head_src_idx="3" head_dst_idx="0" tail_type="CPU_CPU_INTER" tail_src_idx="0" tail_dst_idx="1" gbps="9">
+      <transfer type="GPU_READ_CPUMEM_MEMCPY" src_node="0" dst_node="0" src_idx="0" dst_idx="2" nbytes="16777216"/>
+      <transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_node="0" dst_node="0" src_idx="2" dst_idx="3" nbytes="16777216"/>
+      <transfer type="GPU_READ_CPUMEM_MEMCPY" src_node="0" dst_node="0" src_idx="3" dst_idx="1" nbytes="16777216"/>
+      <transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_node="0" dst_node="0" src_idx="1" dst_idx="1" nbytes="16777216"/>
+      <transfer type="GPU_READ_CPUMEM_MEMCPY" src_node="0" dst_node="0" src_idx="1" dst_idx="3" nbytes="16777216"/>
+      <transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_node="0" dst_node="0" src_idx="3" dst_idx="3" nbytes="16777216"/>
+      <transfer type="GPU_READ_CPUMEM_MEMCPY" src_node="0" dst_node="0" src_idx="3" dst_idx="0" nbytes="16777216"/>
+      <transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_node="0" dst_node="0" src_idx="0" dst_idx="0" nbytes="16777216"/>
+      </transfers>
+<transfers head_type="CPU_CPU_INTER" head_src_idx="0" head_dst_idx="1" tail_type="CPU_CPU_INTER" tail_src_idx="3" tail_dst_idx="0" gbps="9">
+        <transfer type="GPU_READ_CPUMEM_MEMCPY" src_node="1" dst_node="1" src_idx="1" dst_idx="1" nbytes="16777216"/>
+        <transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_node="1" dst_node="1" src_idx="1" dst_idx="0" nbytes="16777216"/>
+        <transfer type="GPU_READ_CPUMEM_MEMCPY" src_node="1" dst_node="1" src_idx="0" dst_idx="3" nbytes="16777216"/>
+        <transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_node="1" dst_node="1" src_idx="3" dst_idx="3" nbytes="16777216"/>
+        <transfer type="GPU_READ_CPUMEM_MEMCPY" src_node="1" dst_node="1" src_idx="3" dst_idx="0" nbytes="16777216"/>
+        <transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_node="1" dst_node="1" src_idx="0" dst_idx="1" nbytes="16777216"/>
+        <transfer type="GPU_READ_CPUMEM_MEMCPY" src_node="1" dst_node="1" src_idx="1" dst_idx="2" nbytes="16777216"/>
+        <transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_node="1" dst_node="1" src_idx="2" dst_idx="3" nbytes="16777216"/>
+      </transfers>
+</subset>
+<subset gpus="9">
+<transfers head_type="GPU_GPU_INTER" head_src_idx="3" head_dst_idx="0" tail_type="GPU_GPU_INTER" tail_src_idx="3" tail_dst_idx="0" gbps="5.9">
+<!--
+8.82GB/s
+<transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="0" dst_idx="3"/>
+-->
+<!--
+8.34GB/s
+<transfer type="GPU_READ_GPUMEM_KERNEL" src_idx="0" dst_idx="3"/>
+-->
+<!--
+8.80GB/s
+<transfer type="GPU_WRITE_GPUMEM_MEMCPY" src_idx="0" dst_idx="3"/>
+-->
+<!--
+Not supported
+<transfer type="GPU_READ_GPUMEM_MEMCPY" src_idx="0" dst_idx="3"/>
+-->
+<!--
+10.07GB/s
+<transfer type="GPU_WRITE_CPUMEM_KERNEL" src_idx="0" dst_idx="3"/>
+<transfer type="GPU_READ_CPUMEM_KERNEL" src_idx="3" dst_idx="3"/>
+-->
+<!--
+9.84GB/s
+<transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_idx="0" dst_idx="3"/>
+<transfer type="GPU_READ_CPUMEM_KERNEL" src_idx="3" dst_idx="3"/>
+-->
+<!--
+9.69GB/s
+<transfer type="GPU_WRITE_CPUMEM_KERNEL" src_idx="0" dst_idx="3"/>
+<transfer type="GPU_READ_CPUMEM_MEMCPY" src_idx="3" dst_idx="3"/>
+-->
+<!--
+9.75GB/s
+<transfer type="GPU_WRITE_CPUMEM_MEMCPY" src_idx="0" dst_idx="3"/>
+<transfer type="GPU_READ_CPUMEM_MEMCPY" src_idx="3" dst_idx="3"/>
+-->
+</transfers>
+<!--multi transfers test
+<transfers head_type="GPU_GPU_INTER" head_src_idx="3" head_dst_idx="3" tail_type="GPU_GPU_INTER" tail_src_idx="0" tail_dst_idx="0" gbps="9">
+<transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="3" dst_idx="0"/>
+</transfers>
+<transfers head_type="GPU_GPU_INTER" head_src_idx="0" head_dst_idx="0" tail_type="GPU_GPU_INTER" tail_src_idx="3" tail_dst_idx="3" gbps="9">
+<transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="0" dst_idx="3"/>
+</transfers>
+-->
+<!--mixed transfers test
+<transfers head_type="GPU_CPU_INTER" head_src_idx="3" head_dst_idx="2" tail_type="GPU_GPU_INTER" tail_src_idx="3" tail_dst_idx="0" gbps="9">
+<transfer type="GPU_READ_CPUMEM_KERNEL" src_idx="2" dst_idx="0"/>
+<transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="0" dst_idx="3"/>
+</transfers>
+<transfers head_type="GPU_GPU_INTER" head_src_idx="3" head_dst_idx="0" tail_type="GPU_CPU_INTER" tail_src_idx="3" tail_dst_idx="2" gbps="9">
+<transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="0" dst_idx="3"/>
+</transfers>
+-->
+<transfers head_type="CPU_CPU_INTER" head_src_idx="0" head_dst_idx="0" tail_type="CPU_CPU_INTER" tail_src_idx="0" tail_dst_idx="0" gbps="9">
+<transfer type="GPU_READ_CPUMEM_KERNEL" src_idx="0" dst_idx="3"/>
+<transfer type="GPU_WRITE_GPUMEM_KERNEL" src_idx="3" dst_idx="0"/>
+<transfer type="GPU_WRITE_CPUMEM_KERNEL" src_idx="0" dst_idx="0"/>
+</transfers>
+</subset>
+</inter>
+</root>

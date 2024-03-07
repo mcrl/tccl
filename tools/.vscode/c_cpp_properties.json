@@ -1,0 +1,20 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/deps/spdlog-1.11.0/include",
+                "${workspaceFolder}/deps/json-3.11.2/include",
+                "/opt/mellanox/sharp/include",
+                "/usr/local/cuda-11.7/targets/x86_64-linux/include"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

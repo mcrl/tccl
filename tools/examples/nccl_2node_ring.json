@@ -1,0 +1,86 @@
+{
+  "_comment": "nccl 2node default case (GDR_READ=o, GDR_WRITE=o) 01230123 9GB/s",
+  "niters": 10,
+  "validation": false,
+  "output_fn": "result.json",
+  "jobs": [
+    {
+      "type": "GPU_WRITE_GPUMEM_MEMCPY",
+      "gpu_idx": 0,
+      "gpumem_idx": 1,
+      "nbytes": 67108864,
+      "rank": 0
+    }, 
+    {
+      "type": "GPU_WRITE_GPUMEM_MEMCPY",
+      "gpu_idx": 1,
+      "gpumem_idx": 2,
+      "nbytes": 67108864,
+      "rank": 1
+    }, 
+    {
+      "type": "GPU_WRITE_GPUMEM_MEMCPY",
+      "gpu_idx": 2,
+      "gpumem_idx": 3,
+      "nbytes": 67108864,
+      "rank": 2
+    }, 
+    {
+      "type": "NIC_READ_GPUMEM",
+      "nbytes": 67108864,
+      "rank": 3,
+      "peer_rank": 4,
+      "nic_idx": 0,
+      "device": "gpumem",
+      "gpumem_idx": 3
+    },
+    {
+      "type": "NIC_WRITE_GPUMEM",
+      "nbytes": 67108864,
+      "rank": 4,
+      "peer_rank": 3,
+      "nic_idx": 0,
+      "device": "gpumem",
+      "gpumem_idx": 0
+    },
+    {
+      "type": "GPU_WRITE_GPUMEM_MEMCPY",
+      "gpu_idx": 0,
+      "gpumem_idx": 1,
+      "nbytes": 67108864,
+      "rank": 5
+    }, 
+    {
+      "type": "GPU_WRITE_GPUMEM_MEMCPY",
+      "gpu_idx": 1,
+      "gpumem_idx": 2,
+      "nbytes": 67108864,
+      "rank": 6
+    }, 
+    {
+      "type": "GPU_WRITE_GPUMEM_MEMCPY",
+      "gpu_idx": 2,
+      "gpumem_idx": 3,
+      "nbytes": 67108864,
+      "rank": 7
+    }, 
+    {
+      "type": "NIC_READ_GPUMEM",
+      "nbytes": 67108864,
+      "rank": 8,
+      "peer_rank": 9,
+      "nic_idx": 0,
+      "device": "gpumem",
+      "gpumem_idx": 3
+    },
+    {
+      "type": "NIC_WRITE_GPUMEM",
+      "nbytes": 67108864,
+      "rank": 9,
+      "peer_rank": 8,
+      "nic_idx": 0,
+      "device": "gpumem",
+      "gpumem_idx": 0
+    }
+  ]
+}
