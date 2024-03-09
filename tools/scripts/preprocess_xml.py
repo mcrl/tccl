@@ -34,10 +34,10 @@ def main(args):
     head, body, tail = transfer_list[0], transfer_list[1:-1], transfer_list[-1]
     new_transfers = ET.SubElement(subset, 'transfers', {
       'gbps': transfers.attrib['gbps'],
-      'head_type': head.attrib['type'],
+      'head_type': head.attrib['type'].replace('MEMCPY', 'KERNEL'),
       'head_src_idx': head.attrib['src_idx'],
       'head_dst_idx': head.attrib['dst_idx'],
-      'tail_type': tail.attrib['type'],
+      'tail_type': tail.attrib['type'].replace('MEMCPY', 'KERNEL'),
       'tail_src_idx': tail.attrib['src_idx'],
       'tail_dst_idx': tail.attrib['dst_idx'],
     })

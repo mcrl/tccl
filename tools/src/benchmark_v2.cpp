@@ -2542,11 +2542,11 @@ void RunDijkstra(cache_t& cache, Transfer head, Transfer tail, int gpu_mask, con
       if ((conf.cache_miss + conf.cache_hit) % 20 == 0) {
         size_t bench_us = get_duration_us(conf.start_time, get_time());
         double bench_per_sec = (double)conf.cache_miss / (bench_us == 0 ? 1 : bench_us) * 1e6;
-        LOG_RANK_0("cache_miss = {}, cache_hit = {}, {} bench/s", conf.cache_miss, conf.cache_hit, bench_per_sec);
-        LOG_RANK_0("Bench example(BW = {} GB/s):", bw / 1e9);
-        for (size_t i = 0; i < new_transfers.size(); ++i) {
-          LOG_RANK_0("{}", new_transfers[i].ToString());
-        }
+        LOG_RANK_0("total_bench = {}, cache_miss = {}, cache_hit = {}, {} bench/s", conf.cache_miss + conf.cache_hit, conf.cache_miss, conf.cache_hit, bench_per_sec);
+        //LOG_RANK_0("Bench example(BW = {} GB/s):", bw / 1e9);
+        //for (size_t i = 0; i < new_transfers.size(); ++i) {
+        //  LOG_RANK_0("{}", new_transfers[i].ToString());
+        //}
       }
       SearchState new_s = {
         .transfers = new_transfers,

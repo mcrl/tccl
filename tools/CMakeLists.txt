@@ -31,9 +31,7 @@ include_directories("deps/spdlog-1.11.0/include")
 include_directories("deps/json-3.11.2/include")
 include_directories("deps/tinyxml2-9.0.0")
 include_directories("/opt/mellanox/sharp/include")
-include_directories("/home/n1/heehoon/tccl-exp/nccl-2.18.3-1/build/include")
 link_directories("/opt/mellanox/sharp/lib")
-link_directories("/home/n1/heehoon/tccl-exp/nccl-2.18.3-1/build/lib")
 
 # print all include directories
 get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)
@@ -46,4 +44,3 @@ message(STATUS "LINK_DIRECTORIES='${dirs}'")
 add_subdirectory(deps/tinyxml2-9.0.0)
 
 add_subdirectory(src)
-add_subdirectory(tests)

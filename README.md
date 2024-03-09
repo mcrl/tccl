@@ -1,76 +1,85 @@
-# NCCL
+# TCCL
 
-Optimized primitives for inter-GPU communication.
+Collective communication library from Thunder Research Group.
 
 ## Introduction
 
-NCCL (pronounced "Nickel") is a stand-alone library of standard communication routines for GPUs, implementing all-reduce, all-gather, reduce, broadcast, reduce-scatter, as well as any send/receive based communication pattern. It has been optimized to achieve high bandwidth on platforms using PCIe, NVLink, NVswitch, as well as networking using InfiniBand Verbs or TCP/IP sockets. NCCL supports an arbitrary number of GPUs installed in a single node or across multiple nodes, and can be used in either single- or multi-process (e.g., MPI) applications.
+TCCL is a fork of NCCL that aims to accelerate collective communication primitives on systems that lack proprietary high-speed interconnects between GPUs, such as NVLink, and external PCIe switches. We refer to these systems as *PCIe-dependent systems* because GPUs must communicate through the PCIe host bridge of the CPU and possibly the interconnect between NUMA nodes or CPU sockets.
 
-For more information on NCCL usage, please refer to the [NCCL documentation](https://docs.nvidia.com/deeplearning/sdk/nccl-developer-guide/index.html).
+We found that existing collective communication libraries do not achieve the target performance that their performance model estimates in PCIe-dependent systems. One of the reasons is that transfers slow down when multiple transfers go through the CPU in a specific pattern due to NUMA architectures. Another is the poor placement of the bounce buffers when GPUs communicate via CPU memory. Such congestion patterns are not identified or avoided by the existing collective communication libraries because the phenomenon does not appear when communication utilizes links outside the CPU.
+
+TCCL consists of TCCL pathfinder and TCCL runtime. The pathfinder is a module that searches for communication paths. The pathfinder always profiles each communication path of interest to check the performance it achieves to avoid congestion by taking it. Since the number of possible communication paths increases exponentially with the number of GPUs in a cluster, it is infeasible to brute-force search all the communication paths. Thus, the pathfinder measures the performance of intra-node paths and merges the single-node paths to construct multi-node paths.
+
+The runtime is a modification of NCCL such that the paths collective communication operations use are replaced with the paths found by the pathfinder while allowing a transparent interface to use TCCL without any code changes.
 
 ## Build
 
-Note: the official and tested builds of NCCL can be downloaded from: https://developer.nvidia.com/nccl. You can skip the following build steps if you choose to use the official builds.
+### TCCL runtime
 
-To build the library :
-
+As TCCL runtime is a fork of NCCL, the build process is similar to NCCL. To build the library:
 ```shell
-$ cd nccl
+$ cd tccl
 $ make -j src.build
+$ ls build/lib
+... libnccl.so ...
 ```
 
-If CUDA is not installed in the default /usr/local/cuda path, you can define the CUDA path with :
+For other options, check the original NCCL repository.
+
+### TCCL pathfinder
+
+TCCL pathfinder is compiled with cmake:
+```shell
+$ cd tccl/tools
+$ mkdir build
+$ cd build
+$ cmake ..
+$ make -j `nproc`
+$ ls
+... pathfinder ...
+```
+
+## Searching communication paths
+
+Once you have built TCCL, you should execute the pathfinder to generate an XML file that contains communication path information. As the pathfinder is an MPI program that runs on multiple nodes, the launch command depends on the cluster environment. In the cluster managed by SLURM, you can launch the pathfinder as follows:
 
 ```shell
-$ make src.build CUDA_HOME=<path to cuda install>
+$ mkdir workspace
+$ salloc -N 3 --exclusive \
+    mpirun -mca btl ^openib -mca pml ucx --bind-to none \
+    -npernode 11 \
+    tccl/tools/build/pathfinder -o workspace
+$ python tccl/tools/scripts/preprocess_xml.py --dir workspace --output path_info.xml
 ```
 
-NCCL will be compiled and installed in `build/` unless `BUILDDIR` is set.
+The pathfinder generates intermediate XML files in the workspace directory. `preprocess_xml.py` merges the intermediate XML files and generates a single XML file that be used by the TCCL runtime.
 
-By default, NCCL is compiled for all supported architectures. To accelerate the compilation and reduce the binary size, consider redefining `NVCC_GENCODE` (defined in `makefiles/common.mk`) to only include the architecture of the target platform :
+The pathfinder should be launched in 3 nodes: one node is a main node, and the other two nodes are sub-nodes used to profile inter-node transfers. The main node require `3 + (number of GPUs) * 2` proceeses: 1 main process, 2 for inter-node transfers, and 2 for each GPU. The sub-nodes requires just 2 processes: 1 for inter-node transfer, and another for a GPU that sends/receives data. The above example simply launches the pathfinder on 3 nodes with 11 processes per node, which is suitable for a cluster with 4 GPUs per node.
+
+## Usage
+
+To use TCCL in applications, replace the shared library of NCCL with that of TCCL using mechanisms such as `LD_PRELOAD`. Note that the shared library of TCCL is named `libnccl.so` to maximize compatibility. You should also set two environment variables: `TCCL_XML_FILE` and `NCCL_ALGO`. `TCCL_XML_FILE` should be the path to the XML file generated by the pathfinder. `NCCL_ALGO` should be set to TCCL to use the communication paths found by TCCL. Otherwise, it will fall back to NCCL's algorithms.
+
+For example, the following command launches 2-node 8-GPU AllReduce `nccl-tests` with TCCL:
 ```shell
-$ make -j src.build NVCC_GENCODE="-gencode=arch=compute_70,code=sm_70"
+$ mpirun -mca btl ^openib -mca pml ucx --bind-to none \
+    -npernode 4 \
+    -x LD_PRELOAD=tccl/build/lib/libnccl.so \
+    -x NCCL_DEBUG=INFO \
+    -x NCCL_DEBUG_SUBSYS=TCCL \
+    -x NCCL_ALGO=TCCL,RING \
+    -x TCCL_XML_FILE=$TCCL_XML_FILE \
+    nccl-tests/build/all_reduce_perf -b 8 -e 128M -f 2
+... NCCL INFO TCCL channel setup done ...
+... Out of bounds values : 0 OK ...
 ```
+If the installation was successful, the log will state that the TCCL channels have been created properly and there are no wrong values. You may compare the performance with NCCL by removing `NCCL_ALGO=TCCL` from the scripts.
 
-## Install
+## Artifact Evaluation
 
-To install NCCL on the system, create a package then install it as root.
+See [Artifact Evaluation](./AE.md) for the details to reproduce the results in the paper[[1]](#1).
 
-Debian/Ubuntu :
-```shell
-$ # Install tools to create debian packages
-$ sudo apt install build-essential devscripts debhelper fakeroot
-$ # Build NCCL deb package
-$ make pkg.debian.build
-$ ls build/pkg/deb/
-```
+## References
 
-RedHat/CentOS :
-```shell
-$ # Install tools to create rpm packages
-$ sudo yum install rpm-build rpmdevtools
-$ # Build NCCL rpm package
-$ make pkg.redhat.build
-$ ls build/pkg/rpm/
-```
-
-OS-agnostic tarball :
-```shell
-$ make pkg.txz.build
-$ ls build/pkg/txz/
-```
-
-## Tests
-
-Tests for NCCL are maintained separately at https://github.com/nvidia/nccl-tests.
-
-```shell
-$ git clone https://github.com/NVIDIA/nccl-tests.git
-$ cd nccl-tests
-$ make
-$ ./build/all_reduce_perf -b 8 -e 256M -f 2 -g <ngpus>
-```
-
-## Copyright
-
-All source code and accompanying documentation is copyright (c) 2015-2020, NVIDIA CORPORATION. All rights reserved.
+<a id="1">[1]</a> 
+Heehoon Kim, Junyeol Ryu, and Jaejin Lee. TCCL: A Collective Communication Library for PCIe-Dependent Systems. ASPLOS 2024: Proceedings of the 28th International Conference on Architectural Support for Programming Languages and Operating Systems, To appear.
