@@ -125,6 +125,7 @@ struct ncclSharedResources {
 struct ncclChannel {
   struct ncclChannelPeer** peers;
   struct ncclDevChannelPeer** devPeers;
+  struct ncclDevChannelPeer** devPeersHostPtr;
   struct ncclRing ring;
   int* devRingUserRanks;
   struct ncclTree tree;
