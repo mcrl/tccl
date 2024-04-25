@@ -36,7 +36,7 @@ def get_machine_configuration(machine):
     partition = 'asplosB'
   elif machine == 'd':
     #num_nodes = list(range(1, 3 + 1))
-    num_nodes = [3]
+    num_nodes = [4]
     #tp_pp = []
     #for prod in [1, 2, 4, 8, 12]:
     #  for tp in [1, 2, 4, 8, 12]:
@@ -74,7 +74,7 @@ USAGE: all_gather_perf
         [-a,--average <0/1/2/3> report average iteration time <0=RANK0/1=AVG/2=MIN/3=MAX>] 
         [-h,--help]"""
 
-def gen_script(args, torch_script_fn, nodes_to_use, num_gpu, libname, target_machine, num_node, devices, model, tp, pp, partition, mbs, accum):
+def gen_script(args, tag, torch_script_fn, nodes_to_use, num_gpu, libname, target_machine, num_node, devices, model, tp, pp, partition, mbs, accum):
   master_host = nodes_to_use[0]
   hosts = ','.join([f'{node}' for node in nodes_to_use])
   #gbs = num_node * num_gpu * mbs // tp // pp
@@ -153,6 +153,11 @@ mpirun -mca btl ^openib -mca pml ucx --bind-to none \
   else:
     assert False, 'Unknown machine: %s' % target_machine
 
+  if args.profile:
+    profile_cmd = f'/usr/local/cuda/bin/nsys profile -w true -t cuda,nvtx,osrt,cudnn,cublas -s none -o {tag}_%q{{OMPI_COMM_WORLD_RANK}} -f true -x true'
+  else:
+    profile_cmd = ''
+
   torch_script = f"""#!/bin/bash -l
 
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -215,7 +220,7 @@ PARALLEL_ARGS="
     --sequence-parallel \
     --tensor-model-parallel-size {tp} \
     --pipeline-model-parallel-size {pp} \
-    --train-iters 12 \
+    --train-iters {args.num_iters} \
 "
 
 T5_220M_ARGS="
@@ -388,7 +393,7 @@ DATA_ARGS="
 "
 
 OUTPUT_ARGS="
-    --log-interval 3 \
+    --log-interval {args.log_interval} \
     --save-interval 10000 \
     --eval-interval 1000 \
     --eval-iters 0 \
@@ -401,7 +406,7 @@ LBL_ARGS="
 "
 
 cd $TCCL_AEC_ROOT/Megatron-LM-23.05
-torchrun $DISTRIBUTED_ARGS $SCRIPT_NAME \
+{profile_cmd} torchrun $DISTRIBUTED_ARGS $SCRIPT_NAME \
     ${model_args} \
     $PARALLEL_ARGS \
     $DATA_ARGS \
@@ -431,15 +436,15 @@ def main(args):
       if num_node == 1 and num_gpu == 1: continue
       nodes_to_use = nodes[:num_node]
       for tp, pp in tp_pp_list:
-        for libname in ['tccl', 'nccl', 'msccl']:
-          for model in ['gpt', 'bert', 't5']:
+        for libname in ['nccl', 'msccl', 'tccl']:
+          for model in ['bert', 'gpt', 't5']:
             tag_list = [libname, target_machine, num_node, devices, model, tp, pp]
             print(f'Running libname={libname} cluster={target_machine} num_node={num_node} CUDA_VISIBLE_DEVICES={devices} model={model} tp={tp}')
             tag = '.'.join([str(arg) for arg in tag_list])
             mpi_script_fn = f'{args.output_dir}/{tag}_mpi.sh' 
             torch_script_fn = f'{args.output_dir}/{tag}_torch.sh' 
 
-            mpi_script, torch_script = gen_script(args, torch_script_fn, nodes_to_use, num_gpu, libname, target_machine, num_node, devices, model, tp, pp, partition, mbs=2, accum=20)
+            mpi_script, torch_script = gen_script(args, tag, torch_script_fn, nodes_to_use, num_gpu, libname, target_machine, num_node, devices, model, tp, pp, partition, mbs=2, accum=20)
 
             with open(mpi_script_fn, 'w') as f:
               f.write(mpi_script)
@@ -448,23 +453,28 @@ def main(args):
               f.write(torch_script)
             run(f'chmod +x {torch_script_fn}')
 
-            print(f'Start at {time.ctime(time.time())}')
-            output, errput, rc = run(f'{mpi_script_fn}', returncode=True)
-            print(f'End at {time.ctime(time.time())}')
-            errmsg = ''
-            if 'NCCL WARN' in output:
-              errmsg = [line.strip() for line in output.split('\n') if 'NCCL WARN' in line][0]
-            print(f'returncode={rc} errmsg={errmsg}')
-            output_fn = f'{args.output_dir}/{tag}.out' 
-            errput_fn = f'{args.output_dir}/{tag}.err' 
-            with open(output_fn, 'w') as f:
-              f.write(output)
-            with open(errput_fn, 'w') as f:
-              f.write(errput)
+            if not args.dry_run:
+              print(f'Start at {time.ctime(time.time())}')
+              output, errput, rc = run(f'{mpi_script_fn}', returncode=True)
+              print(f'End at {time.ctime(time.time())}')
+              errmsg = ''
+              if 'NCCL WARN' in output:
+                errmsg = [line.strip() for line in output.split('\n') if 'NCCL WARN' in line][0]
+              print(f'returncode={rc} errmsg={errmsg}')
+              output_fn = f'{args.output_dir}/{tag}.out'
+              errput_fn = f'{args.output_dir}/{tag}.err'
+              with open(output_fn, 'w') as f:
+                f.write(output)
+              with open(errput_fn, 'w') as f:
+                f.write(errput)
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--output-dir', type=str, required=True)
   parser.add_argument('--target-machine', type=str, required=True, choices=['a', 'b', 'd'])
+  parser.add_argument('--dry-run', action='store_true')
+  parser.add_argument('--profile', action='store_true')
+  parser.add_argument('--log-interval', type=int, default=3)
+  parser.add_argument('--num-iters', type=int, default=12)
   args = parser.parse_args()
   main(args)

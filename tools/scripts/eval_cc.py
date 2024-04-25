@@ -16,7 +16,7 @@ def get_machine_configuration(machine):
     num_nodes = list(range(1, 6 + 1))
     partition = 'asplosB'
   elif machine == 'd':
-    num_nodes = list(range(1, 3 + 1))
+    num_nodes = list(range(1, 4 + 1))
     partition = 'asplosD'
   else:
     assert False, 'Unknown machine: %s' % machine
@@ -56,7 +56,7 @@ mpirun -mca btl ^openib -mca pml ucx {'--bind-to none' if args.bind_none else ''
   -x NCCL_DEBUG_SUBSYS=INIT,ENV \
   -x CUDA_VISIBLE_DEVICES={devices} \
   $TCCL_AEC_ROOT/nccl-tests-2.13.8/build/{NCCL_TESTS_BINS[op_idx]} \
-  -b 1K -e 1G -f 2 -g 1 -c 0 -n 1 -w 1 -G 0 -z 0
+  -b 1K -e 1G -f 2 -g 1 -c 0 -n {args.niters} -w 1 -G 0 -z 0
 """
   return txt
 def gen_script_msccl(args, partition, num_gpu, libname, target_machine, num_node, devices, op_idx):
@@ -72,7 +72,7 @@ mpirun -mca btl ^openib -mca pml ucx {'--bind-to none' if args.bind_none else ''
   -x NCCL_ALGO=MSCCL,RING,TREE \
   -x MSCCL_XML_FILES=$TCCL_AEC_ROOT/refs/msccl-exp-synthesis-plans/{target_machine.upper()}.0.LOC.0/{NCCL_API_OPTS[op_idx]}.{target_machine.upper()}.{num_node}.{num_gpu}.i3.xml \
   $TCCL_AEC_ROOT/nccl-tests-2.13.8/build/{NCCL_TESTS_BINS[op_idx]} \
-  -b 1K -e 1G -f 2 -g 1 -c 0 -n 1 -w 1 -G 0 -z 0
+  -b 1K -e 1G -f 2 -g 1 -c 0 -n {args.niters} -w 1 -G 0 -z 0
 """
   return txt
 def gen_script_tccl(args, partition, num_gpu, libname, target_machine, num_node, devices, op_idx):
@@ -97,7 +97,7 @@ mpirun -mca btl ^openib -mca pml ucx {'--bind-to none' if args.bind_none else ''
   -x NCCL_ALGO=TCCL,RING \
   -x TCCL_XML_FILE=$TCCL_AEC_ROOT/workspace/{xml_fn} \
   $TCCL_AEC_ROOT/nccl-tests-2.13.8/build/{NCCL_TESTS_BINS[op_idx]} \
-  -b 1K -e 1G -f 2 -g 1 -c 1 -n 1 -w 1 -G 0 -z 0
+  -b 1K -e 1G -f 2 -g 1 -c 1 -n {args.niters} -w 1 -G 0 -z 0
 """
   return txt
 
@@ -136,22 +136,25 @@ def main(args):
             f.write(script)
           run(f'chmod +x {script_fn}')
           print(f'Running lib={libname} partition={partition} num_node={num_node} CUDA_VISIBLE_DEVICES={devices} op={NCCL_API_OPTS[op_idx]}')
-          output, errput, rc = run(f'{script_fn}', returncode=True)
-          errmsg = ''
-          if 'NCCL WARN' in output:
-            errmsg = [line.strip() for line in output.split('\n') if 'NCCL WARN' in line][0]
-          print(f'==> returncode={rc} errmsg={errmsg}')
-          output_fn = f'{args.output_dir}/{tag}.out' 
-          errput_fn = f'{args.output_dir}/{tag}.err' 
-          with open(output_fn, 'w') as f:
-            f.write(output)
-          with open(errput_fn, 'w') as f:
-            f.write(errput)
+          if not args.dry_run:
+            output, errput, rc = run(f'{script_fn}', returncode=True)
+            errmsg = ''
+            if 'NCCL WARN' in output:
+              errmsg = [line.strip() for line in output.split('\n') if 'NCCL WARN' in line][0]
+            print(f'==> returncode={rc} errmsg={errmsg}')
+            output_fn = f'{args.output_dir}/{tag}.out'
+            errput_fn = f'{args.output_dir}/{tag}.err'
+            with open(output_fn, 'w') as f:
+              f.write(output)
+            with open(errput_fn, 'w') as f:
+              f.write(errput)
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--output-dir', type=str, required=True)
   parser.add_argument('--target-machine', type=str, required=True, choices=['a', 'b', 'd'])
   parser.add_argument('--bind-none', action='store_true')
+  parser.add_argument('--dry-run', action='store_true')
+  parser.add_argument('--niters', type=int, default=1)
   args = parser.parse_args()
   main(args)

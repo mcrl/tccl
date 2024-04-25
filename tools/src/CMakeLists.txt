@@ -4,7 +4,7 @@ target_link_options(benchmark_v2 PRIVATE -fopenmp)
 target_compile_options(benchmark_v2 PRIVATE -fopenmp -g)
 
 add_executable(pathfinder launch_benchmark.cpp)
-target_link_libraries(pathfinder benchmark_v2)
+target_link_libraries(pathfinder benchmark_v2 hwloc)
 target_compile_options(pathfinder PRIVATE -O3 -fopenmp -g)
 
 add_executable(launch_single launch_single.cpp)

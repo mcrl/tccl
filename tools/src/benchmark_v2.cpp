@@ -264,24 +264,45 @@ int Transfer::Encode() const {
   // 4 bit for Transfer Type (less than 16 types)
   // 2 bit for src_node
   // 2 bit for dst_node
-  // 2 bit for src_idx
-  // 2 bit for dst_idx
-  int encoded = 0;
-  encoded |= (int)type;
-  encoded |= (src_node << 4);
-  encoded |= (dst_node << 6);
-  encoded |= (src_idx << 8);
-  encoded |= (dst_idx << 10);
+  // conf.num_bits_idx bit for src_idx
+  // conf.num_bits_idx bit for dst_idx
+  int encoded = 0, ofs = 0;
+  encoded |= ((int)type << ofs);
+  ofs += 4;
+  encoded |= (src_node << ofs);
+  ofs += 2;
+  encoded |= (dst_node << ofs);
+  ofs += 2;
+  encoded |= (src_idx << ofs);
+  ofs += conf.num_bits_idx;
+  encoded |= (dst_idx << ofs);
+  ofs += conf.num_bits_idx;
   return encoded;
 }
 
 Transfer Transfer::Decode(int encoded) {
+  int ofs = 0;
+  ofs = 4;
+  int type = encoded & ((1 << ofs) - 1);
+  encoded >>= ofs;
+  ofs = 2;
+  int src_node = encoded & ((1 << ofs) - 1);
+  encoded >>= ofs;
+  ofs = 2;
+  int dst_node = encoded & ((1 << ofs) - 1);
+  encoded >>= ofs;
+  ofs = conf.num_bits_idx;
+  int src_idx = encoded & ((1 << ofs) - 1);
+  encoded >>= ofs;
+  ofs = conf.num_bits_idx;
+  int dst_idx = encoded & ((1 << ofs) - 1);
+  encoded >>= ofs;
   return Transfer {
-    .type = (Transfer::TransferType)(encoded & 0xf),
-    .src_node = (encoded >> 4) & 0x3,
-    .dst_node = (encoded >> 6) & 0x3,
-    .src_idx = (encoded >> 8) & 0x3,
-    .dst_idx = (encoded >> 10) & 0x3,
+    .type = (Transfer::TransferType)type,
+    .src_node = src_node,
+    .dst_node = dst_node,
+    .src_idx = src_idx,
+    .dst_idx = dst_idx,
     .nbytes = conf.nbytes
   };
 }
@@ -304,8 +325,11 @@ Transfer Transfer::DecodeInter(int encoded, int src_node, int dst_node) {
     default:
       assert(false);
   }
-  int src_idx = (encoded >> 2) & 0x3;
-  int dst_idx = (encoded >> 4) & 0x3;
+  encoded >>= 2;
+  int src_idx = encoded & ((1 << conf.num_bits_idx) - 1);
+  encoded >>= conf.num_bits_idx;
+  int dst_idx = encoded & ((1 << conf.num_bits_idx) - 1);
+  encoded >>= conf.num_bits_idx;
   return Transfer{
     .type = type,
     .src_node = src_node,
@@ -407,6 +431,7 @@ void ValidateLaunchConf() {
 void ValidateCuda() {
   int num_gpus, min_num_gpus;
   CHECK_CUDA(cudaGetDeviceCount(&num_gpus));
+  conf.num_gpus = num_gpus;
   MPI_Allreduce(&num_gpus, &min_num_gpus, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
   if (num_gpus != min_num_gpus) {
     LOG_RANK_ANY("ERROR: All nodes must have the same number of GPUs ({} != {})", num_gpus, min_num_gpus);
@@ -1545,7 +1570,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesIntra(SearchState& s,
           transfers_new.push_back(new_transfer);
           cands.push_back(transfers_new);
         }
-        {
+        if (!conf.disable_memcpy) {
           Transfer new_transfer = {
             .type = Transfer::TransferType::GPU_WRITE_GPUMEM_MEMCPY,
             .src_node = 0,
@@ -1572,7 +1597,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesIntra(SearchState& s,
           transfers_new.push_back(new_transfer);
           cands.push_back(transfers_new);
         }
-        if (!conf.disable_memcpy_read) {
+        if (!conf.disable_memcpy && !conf.disable_memcpy_read) {
           Transfer new_transfer = {
             .type = Transfer::TransferType::GPU_READ_GPUMEM_MEMCPY,
             .src_node = 0,
@@ -1609,7 +1634,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesIntra(SearchState& s,
           transfers_new.push_back(read_transfer);
           cands.push_back(transfers_new);
         }
-        if (!conf.disable_kernel) {
+        if (!conf.disable_kernel && !conf.disable_memcpy) {
           Transfer write_transfer = {
             .type = Transfer::TransferType::GPU_WRITE_CPUMEM_MEMCPY,
             .src_node = 0,
@@ -1631,7 +1656,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesIntra(SearchState& s,
           transfers_new.push_back(read_transfer);
           cands.push_back(transfers_new);
         }
-        if (!conf.disable_kernel) {
+        if (!conf.disable_kernel && !conf.disable_memcpy && !conf.disable_memcpy_read) {
           Transfer write_transfer = {
             .type = Transfer::TransferType::GPU_WRITE_CPUMEM_KERNEL,
             .src_node = 0,
@@ -1653,7 +1678,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesIntra(SearchState& s,
           transfers_new.push_back(read_transfer);
           cands.push_back(transfers_new);
         }
-        {
+        if (!conf.disable_memcpy && !conf.disable_memcpy_read) {
           Transfer write_transfer = {
             .type = Transfer::TransferType::GPU_WRITE_CPUMEM_MEMCPY,
             .src_node = 0,
@@ -1717,7 +1742,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesInter(SearchState& s,
         suffix.push_back(tail);
         cands.push_back(suffix);
       }
-      {
+      if (!conf.disable_memcpy) {
         std::vector<Transfer> suffix;
         suffix.push_back(Transfer{
           .type = Transfer::TransferType::GPU_WRITE_CPUMEM_MEMCPY,
@@ -1765,7 +1790,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesInter(SearchState& s,
         suffix.push_back(tail);
         cands.push_back(suffix);
       }
-      {
+      if (!conf.disable_memcpy) {
         std::vector<Transfer> suffix;
         suffix.push_back(Transfer{
           .type = Transfer::TransferType::GPU_WRITE_CPUMEM_MEMCPY,
@@ -1832,7 +1857,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesInter(SearchState& s,
         });
         cands.push_back(prefix);
       }
-      {
+      if (!conf.disable_memcpy && !conf.disable_memcpy_read) {
         std::vector<Transfer> prefix;
         prefix.push_back(head);
         prefix.push_back(Transfer{
@@ -1878,7 +1903,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesInter(SearchState& s,
         });
         cands.push_back(prefix);
       }
-      {
+      if (!conf.disable_memcpy && !conf.disable_memcpy_read) {
         std::vector<Transfer> prefix;
         prefix.push_back(head);
         prefix.push_back(Transfer{
@@ -1930,7 +1955,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesInter(SearchState& s,
           transfers_new.push_back(new_transfer);
           cands.push_back(transfers_new);
         }
-        {
+        if (!conf.disable_memcpy) {
           Transfer new_transfer = {
             .type = Transfer::TransferType::GPU_WRITE_GPUMEM_MEMCPY,
             .src_node = 0,
@@ -1957,7 +1982,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesInter(SearchState& s,
           transfers_new.push_back(new_transfer);
           cands.push_back(transfers_new);
         }
-        if (!conf.disable_memcpy_read){
+        if (!conf.disable_memcpy && !conf.disable_memcpy_read){
           Transfer new_transfer = {
             .type = Transfer::TransferType::GPU_READ_GPUMEM_MEMCPY,
             .src_node = 0,
@@ -1994,7 +2019,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesInter(SearchState& s,
           transfers_new.push_back(read_transfer);
           cands.push_back(transfers_new);
         }
-        if (!conf.disable_kernel) {
+        if (!conf.disable_kernel && !conf.disable_memcpy) {
           Transfer write_transfer = {
             .type = Transfer::TransferType::GPU_WRITE_CPUMEM_MEMCPY,
             .src_node = 0,
@@ -2016,7 +2041,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesInter(SearchState& s,
           transfers_new.push_back(read_transfer);
           cands.push_back(transfers_new);
         }
-        if (!conf.disable_kernel) {
+        if (!conf.disable_kernel && !conf.disable_memcpy && !conf.disable_memcpy_read) {
           Transfer write_transfer = {
             .type = Transfer::TransferType::GPU_WRITE_CPUMEM_KERNEL,
             .src_node = 0,
@@ -2038,7 +2063,7 @@ std::vector<std::vector<Transfer>> GetNewTransferCandidatesInter(SearchState& s,
           transfers_new.push_back(read_transfer);
           cands.push_back(transfers_new);
         }
-        {
+        if (!conf.disable_memcpy && !conf.disable_memcpy_read) {
           Transfer write_transfer = {
             .type = Transfer::TransferType::GPU_WRITE_CPUMEM_MEMCPY,
             .src_node = 0,
@@ -2477,9 +2502,9 @@ void RunDijkstra(cache_t& cache, Transfer head, Transfer tail, int gpu_mask, con
     pq.pop();
     log_count++;
     if (log_count % log_interval == 0) {
-      LOG_RANK_0("Dijkstra current(BW = {} GB/s):", s.bw / 1e9);
+      DEBUG_RANK_0("Dijkstra current(BW = {} GB/s):", s.bw / 1e9);
       for (size_t i = 0; i < s.transfers.size(); ++i) {
-        LOG_RANK_0("{}", s.transfers[i].ToString());
+        DEBUG_RANK_0("{}", s.transfers[i].ToString());
       }
     }
     {
@@ -2542,7 +2567,7 @@ void RunDijkstra(cache_t& cache, Transfer head, Transfer tail, int gpu_mask, con
       if ((conf.cache_miss + conf.cache_hit) % 20 == 0) {
         size_t bench_us = get_duration_us(conf.start_time, get_time());
         double bench_per_sec = (double)conf.cache_miss / (bench_us == 0 ? 1 : bench_us) * 1e6;
-        LOG_RANK_0("total_bench = {}, cache_miss = {}, cache_hit = {}, {} bench/s", conf.cache_miss + conf.cache_hit, conf.cache_miss, conf.cache_hit, bench_per_sec);
+        DEBUG_RANK_0("total_bench = {}, cache_miss = {}, cache_hit = {}, {} bench/s", conf.cache_miss + conf.cache_hit, conf.cache_miss, conf.cache_hit, bench_per_sec);
         //LOG_RANK_0("Bench example(BW = {} GB/s):", bw / 1e9);
         //for (size_t i = 0; i < new_transfers.size(); ++i) {
         //  LOG_RANK_0("{}", new_transfers[i].ToString());

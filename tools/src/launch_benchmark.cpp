@@ -1,9 +1,13 @@
+#include <hwloc/bitmap.h>
 #include <mpi.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cuda_runtime.h>
 #include <map>
 #include <set>
+#include <hwloc.h>
+#define FMT_HEADER_ONLY
+#include <spdlog/fmt/ranges.h>
 #include "conf_v2.hpp"
 #include "benchmark_v2.hpp"
 #include "util.hpp"
@@ -15,77 +19,141 @@ static void print_help(const char *prog_name) {
   printf("     -d : print debug. (default: off)\n");
   printf("     -t : BW threshold in GB/s. (default: 0)\n");
   printf("     -o : output xml directory.\n");
-  printf("     -n : node type (A or B or D).\n");
 }
 
 static char dir_name[1024] = "";
-static char node_type[1024] = "";
 static void parse_opt(int argc, char **argv) {
   int c;
-  while ((c = getopt(argc, argv, "dt:o:n:")) != -1) {
+  while ((c = getopt(argc, argv, "dt:o:")) != -1) {
     switch (c) {
       case 'd': conf.debug = true; break;
       case 't': conf.bw_threshold = atof(optarg) * 1e9; break;
       case 'o': strcpy(dir_name, optarg); break;
-      case 'n': strcpy(node_type, optarg); break;
       default: print_help(argv[0]); exit(0);
     }
   }
-  if (strlen(dir_name) == 0
-      || strlen(node_type) == 0) {
+  if (strlen(dir_name) == 0) {
     print_help(argv[0]);
     exit(0);
   }
 }
 
+// Find numa index the object belongs to
+int FindNumaNode(hwloc_obj_t obj) {
+  while (obj && !obj->memory_arity) {
+    obj = obj->parent;
+  }
+  obj = obj->memory_first_child;
+  return obj->logical_index;
+}
+
+void DetectTopology() {
+  /*
+   * Example topo >
+   * AMD-V100 and AMD-3090:
+   *   conf.gpu_numa = {3, 1, 1, 0};
+   *   conf.numa_gpu = {{3}, {1, 2}, {}, {0}};
+   *   conf.nic_numa = {0};
+   *   conf.numa_nic = {{0}, {}, {}, {}};
+   *   conf.cpumem_numa = {0, 1, 2, 3};
+   *   conf.numa_cpumem = {{0}, {1}, {2}, {3}};
+   * Intel-V100:
+   *   conf.gpu_numa = {0, 0, 2, 2};
+   *   conf.numa_gpu = {{0, 1}, {}, {2, 3}, {}};
+   *   conf.nic_numa = {1}; // Check with lstopo file.png
+   *   conf.numa_nic = {{}, {0}, {}, {}};
+   *   conf.cpumem_numa = {0, 1, 2, 3};
+   *   conf.numa_cpumem = {{0}, {1}, {2}, {3}};
+   */
+  
+  int num_objs = std::max(conf.num_gpus, conf.num_numa);
+  conf.num_bits_idx = num_objs <= 1 ? 1 : 32 - __builtin_clz(num_objs - 1);
+  conf.num_bits_inter_tf = 2 + 2 * conf.num_bits_idx;
+
+  conf.numa_gpu.resize(conf.num_numa);
+  conf.gpu_numa.resize(conf.num_gpus);
+  conf.numa_nic.resize(conf.num_numa);
+  conf.numa_cpumem.resize(conf.num_numa);
+  for (int i = 0; i < conf.num_numa; ++i) {
+    conf.cpumem_numa.push_back(i);
+    conf.numa_cpumem[i].push_back(i);
+  }
+
+  hwloc_topology_t topo;
+  CHECK_ERRNO(hwloc_topology_init(&topo));
+  // osdev is disabled by default
+  CHECK_ERRNO(hwloc_topology_set_io_types_filter(topo, HWLOC_TYPE_FILTER_KEEP_IMPORTANT));
+  CHECK_ERRNO(hwloc_topology_load(topo));
+
+  for (hwloc_obj_t it = NULL; (it = hwloc_get_next_osdev(topo, it)) != NULL; ) {
+    // osdev itself does not have pci attribute
+    // parent of osdev would be pcidev
+    int pcibus = it->parent->attr->pcidev.bus;
+    int pcidev = it->parent->attr->pcidev.dev;
+    int pcifun = it->parent->attr->pcidev.func;
+    if (it->attr->osdev.type == HWLOC_OBJ_OSDEV_OPENFABRICS) {
+      int nic_idx = conf.nic_numa.size();
+      int numa_idx = FindNumaNode(it);
+      LOG_RANK_ANY("Found {} at PCI {:02x}:{:02x}.{:01x} / NUMA {}! Assuming it is IB NIC...\n",
+        it->name, pcibus, pcidev, pcifun, numa_idx);
+      if (nic_idx > 0) {
+        LOG_RANK_ANY("ERROR: does not support NIC more than one");
+        MPI_Abort(MPI_COMM_WORLD, 1);
+      }
+      conf.numa_nic[numa_idx].push_back(nic_idx);
+      conf.nic_numa.push_back(numa_idx);
+    } else if (it->attr->osdev.type == HWLOC_OBJ_OSDEV_COPROC) {
+      int num_gpus, cuda_idx = -1;
+      CHECK_CUDA(cudaGetDeviceCount(&num_gpus));
+      for (int i = 0; i < num_gpus; ++i) {
+        cudaDeviceProp prop;
+        CHECK_CUDA(cudaGetDeviceProperties(&prop, i));
+        if (pcibus == prop.pciBusID && pcidev == prop.pciDeviceID) {
+          cuda_idx = i;
+          int numa_idx = FindNumaNode(it);
+          LOG_RANK_ANY("Found {} at PCI {:02x}:{:02x}.{:01x} / NUMA {}! Assuming it is NVIDIA GPU (CUDA idx={})...\n",
+            it->name, pcibus, pcidev, pcifun, numa_idx, cuda_idx);
+          conf.numa_gpu[numa_idx].push_back(cuda_idx);
+          conf.gpu_numa[cuda_idx] = numa_idx;
+          break;
+        }
+      }
+    }
+  }
+
+  LOG_RANK_ANY("conf.num_bits_idx = {}", conf.num_bits_idx);
+  LOG_RANK_ANY("conf.gpu_numa = {}", conf.gpu_numa);
+  LOG_RANK_ANY("conf.numa_gpu = {}", conf.numa_gpu);
+  LOG_RANK_ANY("conf.nic_numa = {}", conf.nic_numa);
+  LOG_RANK_ANY("conf.numa_nic = {}", conf.numa_nic);
+  LOG_RANK_ANY("conf.cpumem_numa = {}", conf.cpumem_numa);
+  LOG_RANK_ANY("conf.numa_cpumem = {}", conf.numa_cpumem);
+}
+
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
-  
+
   // conf defaults
   conf.start_time = get_time();
   conf.nbytes = 32 * 1024 * 1024;
   conf.bw_threshold = 0; 
   conf.niters = 10;
   conf.warmup_iters = conf.niters / 10;
-  conf.disable_kernel = true;
+  conf.disable_kernel = false;
+  conf.disable_memcpy = true;
   conf.disable_memcpy_read = true;
 
   parse_opt(argc, argv);
-  if (strcmp(node_type, "A") == 0) {
-    conf.gpu_numa = {3, 1, 1, 0};
-    conf.numa_gpu = {{3}, {1, 2}, {}, {0}};
-    conf.nic_numa = {3};
-    conf.numa_nic = {{}, {}, {}, {0}};
-    conf.cpumem_numa = {0, 1, 2, 3};
-    conf.numa_cpumem = {{0}, {1}, {2}, {3}};
-  } else if (strcmp(node_type, "B") == 0) {
-    conf.gpu_numa = {3, 1, 1, 0};
-    conf.numa_gpu = {{3}, {1, 2}, {}, {0}};
-    conf.nic_numa = {3};
-    conf.numa_nic = {{}, {}, {}, {0}};
-    conf.cpumem_numa = {0, 1, 2, 3};
-    conf.numa_cpumem = {{0}, {1}, {2}, {3}};
-  } else if (strcmp(node_type, "D") == 0) {
-    conf.gpu_numa = {0, 0, 2, 2};
-    conf.numa_gpu = {{0, 1}, {}, {2, 3}, {}};
-    conf.nic_numa = {1}; // Check with lstopo file.png
-    conf.numa_nic = {{}, {0}, {}, {}};
-    conf.cpumem_numa = {0, 1, 2, 3};
-    conf.numa_cpumem = {{0}, {1}, {2}, {3}};
-  } else {
-    printf("Unknown node type %s\n", node_type);
-    return 0;
-  }
 
   ValidateLaunchConf();
   ValidateCuda();
   ValidateNuma();
+  DetectTopology();
   if (conf.debug) {
     spdlog::set_level(spdlog::level::debug);
   }
   MPI_Comm_rank(MPI_COMM_WORLD, &conf.rank);
   MPI_Comm_size(MPI_COMM_WORLD, &conf.size);
-  CHECK_CUDA(cudaGetDeviceCount(&conf.num_gpus));
 
   LOG_RANK_ANY("Validation complete");
 
@@ -106,8 +174,8 @@ int main(int argc, char** argv) {
     }
     
     // Inter
-    for (int head = 0; head < 64; ++head) {
-      for (int tail = 0; tail < 64; ++tail) {
+    for (int head = 0; head < (1 << conf.num_bits_inter_tf); ++head) {
+      for (int tail = 0; tail < (1 << conf.num_bits_inter_tf); ++tail) {
         for (int gpu_mask = 0; gpu_mask < (1 << conf.num_gpus); ++gpu_mask) {
           if (__builtin_popcount(gpu_mask) < 1) continue;
           Transfer head_transfer = Transfer::DecodeInter(head, 2, 0);
@@ -129,47 +197,3 @@ int main(int argc, char** argv) {
 
   return 0;
 }
-
-    // Intra setup - iterate through gpu subsets
-    //std::vector<std::vector<std::pair<std::vector<Transfer>, BenchmarkResult>>> result_db;
-    //result_db.resize(1 << num_gpus);
-    //for (int gpu_mask = 0; gpu_mask < (1 << num_gpus); ++gpu_mask) {
-    //  std::vector<int> gpu_idxs;
-    //  for (int i = 0; i < num_gpus; ++i) {
-    //    if (gpu_mask & (1 << i)) {
-    //      gpu_idxs.push_back(i);
-    //    }
-    //  }
-    //  if (gpu_idxs.size() <= 1) continue;
-
-    //  std::vector<Transfer> transfers;
-    //  // since it is a ring, we only need to start from any GPU; here its 0
-    //  VisitGPUIntra(transfers, gpu_idxs[0], gpu_idxs[0], RemoveElem(gpu_idxs, gpu_idxs[0]), result_db[gpu_mask]);
-    //  LOG_RANK_0("Intra GPU subset {:b} done: # of final paths = {}", gpu_mask, result_db[gpu_mask].size());
-    //  PrintResultDBByRank(result_db[gpu_mask], 10);
-    //}
-
-    // Inter setup - TODO need to start from all GPUs
-    //std::vector<std::vector<std::pair<std::vector<Transfer>, BenchmarkResult>>> result_db_inter;
-    //result_db_inter.resize(1 << num_gpus);
-    //for (int gpu_mask = 0; gpu_mask < (1 << num_gpus); ++gpu_mask) {
-    //  std::vector<int> gpu_idxs;
-    //  for (int i = 0; i < num_gpus; ++i) {
-    //    if (gpu_mask & (1 << i)) {
-    //      gpu_idxs.push_back(i);
-    //    }
-    //  }
-    //  if (gpu_idxs.size() <= 0) continue;
-    //  // TODO
-    //  //if (gpu_idxs.size() > 1) break;
-
-    //  // since it is a linear chain, we need to start from all GPUs
-    //  for (int gpu_idx: gpu_idxs) {
-    //    std::vector<Transfer> transfers;
-    //    VisitGPUInter(transfers, gpu_idx, gpu_idx, RemoveElem(gpu_idxs, gpu_idx), result_db_inter[gpu_mask]);
-    //  }
-    //  LOG_RANK_0("Inter GPU subset {:b} done: # of final paths = {}", gpu_mask, result_db_inter[gpu_mask].size());
-    //  //PrintResultDBByRank(result_db_inter[gpu_mask], 10);
-    //  //TODO
-    //  PrintResultDBByRank(result_db_inter[gpu_mask]);
-    //}

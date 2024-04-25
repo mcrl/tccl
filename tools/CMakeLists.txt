@@ -13,6 +13,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_compile_options(-O3 -std=c++14 -g -Wall -Wno-unused-result)
 # Resolve "nvcc fatal : Unknown option '-Wall'"
