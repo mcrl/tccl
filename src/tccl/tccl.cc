@@ -1,3 +1,9 @@
+/*************************************************************************
+ * Copyright (c) 2024 Seoul National University. All rights reserved.
+ *
+ * See LICENSE.txt for license information
+ ************************************************************************/
+
 #include "tccl.h"
 #include "checks.h"
 #include "ezxml.h"
@@ -40,6 +46,42 @@
     } \
   }
 
+tcclTransfer tcclDecodeInterTransfer(ncclComm *comm, int encoded) {
+  int type_int;
+  switch (encoded & 0x3) {
+    case 0:
+      type_int = TCCL_TRANSFER_TYPE_GPU_GPU_INTER; break;
+    case 1:
+      type_int = TCCL_TRANSFER_TYPE_GPU_CPU_INTER; break;
+    case 2:
+      type_int = TCCL_TRANSFER_TYPE_CPU_GPU_INTER; break;
+    case 3:
+      type_int = TCCL_TRANSFER_TYPE_CPU_CPU_INTER; break;
+  }
+  encoded >>= 2;
+  int src_idx = encoded & ((1 << comm->tcclComm.numBitsIdx) - 1);
+  encoded >>= comm->tcclComm.numBitsIdx;
+  int dst_idx = encoded & ((1 << comm->tcclComm.numBitsIdx) - 1);
+  encoded >>= comm->tcclComm.numBitsIdx;
+  return {type_int, src_idx, dst_idx};
+}
+
+int tcclEncodeInterTransfer(ncclComm* comm, const char* type, int src_idx, int dst_idx) {
+  int type_int = -1;
+  if (strcmp(type, "GPU_GPU_INTER") == 0) {
+    type_int = 0;
+  } else if (strcmp(type, "GPU_CPU_INTER") == 0) {
+    type_int = 1;
+  } else if (strcmp(type, "CPU_GPU_INTER") == 0) {
+    type_int = 2;
+  } else if (strcmp(type, "CPU_CPU_INTER") == 0) {
+    type_int = 3;
+  } else {
+    return -1;
+  }
+  return type_int | (src_idx << 2) | (dst_idx << (2 + comm->tcclComm.numBitsIdx));
+}
+
 static ncclResult_t setupTCCLChannel(struct ncclComm* comm, int channelId, int rank, int nranks, int* prevRanks) {
   // prevRanks[r] is the previous rank of rank r in the ring
   TRACE(NCCL_TCCL, "channdlId=%d rank=%d nranks=%d", channelId, rank, nranks);
@@ -66,8 +108,8 @@ static ncclResult_t setupTCCLChannel(struct ncclComm* comm, int channelId, int r
 }
 
 
-tcclTransfers* tcclGetTransfersFromInterDb(tcclTransfers* db, int subset, int head, int tail) {
-  return &db[subset * TCCL_INTER_TRANSFER_ENC_MAX * TCCL_INTER_TRANSFER_ENC_MAX + head * TCCL_INTER_TRANSFER_ENC_MAX + tail];
+tcclTransfers* tcclGetTransfersFromInterDb(ncclComm* comm, tcclTransfers* db, int subset, int head, int tail) {
+  return &db[subset * comm->tcclComm.interTransferEncMax * comm->tcclComm.interTransferEncMax + head * comm->tcclComm.interTransferEncMax + tail];
 }
 
 tcclTransfers* tcclGetTransfersFromIntraDb(tcclTransfers* db, int subset) {
@@ -90,13 +132,13 @@ static ncclResult_t parseTransfer(ezxml_t transfer, tcclTransfer* out) {
   return ncclSuccess;
 }
 
-static ncclResult_t parseTransfers(ezxml_t transfers, tcclTransfers* out, bool inter, int* head, int* tail) {
+static ncclResult_t parseTransfers(ncclComm* comm, ezxml_t transfers, tcclTransfers* out, bool inter, int* head, int* tail) {
   if (inter) {
     PARSE_STR(head_type, transfers, "head_type");
     PARSE_INT(head_src_idx, transfers, "head_src_idx");
     PARSE_INT(head_dst_idx, transfers, "head_dst_idx");
-    *head = tcclEncodeInterTransfer(head_type, head_src_idx, head_dst_idx);
-    if (*head < 0 || *head >= TCCL_INTER_TRANSFER_ENC_MAX) {
+    *head = tcclEncodeInterTransfer(comm, head_type, head_src_idx, head_dst_idx);
+    if (*head < 0 || *head >= comm->tcclComm.interTransferEncMax) {
       WARN("head=%d is out of range", *head);
       return ncclInternalError;
     }
@@ -104,24 +146,26 @@ static ncclResult_t parseTransfers(ezxml_t transfers, tcclTransfers* out, bool i
     PARSE_STR(tail_type, transfers, "tail_type");
     PARSE_INT(tail_src_idx, transfers, "tail_src_idx");
     PARSE_INT(tail_dst_idx, transfers, "tail_dst_idx");
-    *tail = tcclEncodeInterTransfer(tail_type, tail_src_idx, tail_dst_idx);
-    if (*tail < 0 || *tail >= TCCL_INTER_TRANSFER_ENC_MAX) {
+    *tail = tcclEncodeInterTransfer(comm, tail_type, tail_src_idx, tail_dst_idx);
+    if (*tail < 0 || *tail >= comm->tcclComm.interTransferEncMax) {
       WARN("tail=%d is out of range", *tail);
       return ncclInternalError;
     }
   }
   PARSE_DOUBLE(gbps, transfers, "gbps");
-  out->gbps = gbps;
-  int num_transfers = 0;
-  for (ezxml_t transfer = ezxml_child(transfers, "transfer"); transfer; transfer = transfer->next) {
-    NCCLCHECK(parseTransfer(transfer, &out->transfers[num_transfers]));
-    ++num_transfers;
+  if (out) {
+    out->gbps = gbps;
+    int num_transfers = 0;
+    for (ezxml_t transfer = ezxml_child(transfers, "transfer"); transfer; transfer = transfer->next) {
+      NCCLCHECK(parseTransfer(transfer, &out->transfers[num_transfers]));
+      ++num_transfers;
+    }
+    out->num_transfers = num_transfers;
   }
-  out->num_transfers = num_transfers;
   return ncclSuccess;
 }
 
-ncclResult_t tcclGetDbFromXml(tcclTransfers** outInterDb, tcclTransfers** outIntraDb) {
+ncclResult_t tcclGetDbFromXml(ncclComm *comm, tcclTransfers** outInterDb, tcclTransfers** outIntraDb) {
   char* fn = getenv("TCCL_XML_FILE");
   if (!fn) {
     WARN("TCCL_XML_FILE is not set");
@@ -129,55 +173,70 @@ ncclResult_t tcclGetDbFromXml(tcclTransfers** outInterDb, tcclTransfers** outInt
   }
   INFO(NCCL_TCCL, "TCCL_XML_FILE set by environment to %s", fn);
 
+  ezxml_t root = ezxml_parse_file(fn);
+  ezxml_t metadata = ezxml_child(root, "metadata");
+  ezxml_t intra = ezxml_child(root, "intra");
+  ezxml_t inter = ezxml_child(root, "inter");
+
+  // Read metadata
+  {
+    PARSE_INT(num_gpus, metadata, "num_gpus");
+    PARSE_INT(num_bits_idx, metadata, "num_bits_idx");
+    comm->tcclComm.maxGpu = num_gpus;
+    comm->tcclComm.maxGpuSubset = 1 << num_gpus;
+    comm->tcclComm.interTransferEncMax = 1 << (2 + 2 * num_bits_idx);
+    comm->tcclComm.intraTransferLenMax = num_gpus * 2;
+    comm->tcclComm.numBitsIdx = num_bits_idx;
+  }
+
   // Init inter db
   // db[gpus < 16][head < 4 * 4 * 4][tail < 4 * 4 * 4]
-  tcclTransfers* interDb = (tcclTransfers*)malloc(TCCL_MAX_GPU_SUBSET * TCCL_INTER_TRANSFER_ENC_MAX * TCCL_INTER_TRANSFER_ENC_MAX * sizeof(tcclTransfers));
-  for (int i = 0; i < TCCL_MAX_GPU_SUBSET; i++) {
-    for (int j = 0; j < TCCL_INTER_TRANSFER_ENC_MAX; j++) {
-      for (int k = 0; k < TCCL_INTER_TRANSFER_ENC_MAX; k++) {
-        tcclTransfers* transfers = tcclGetTransfersFromInterDb(interDb, i, j, k);
+  tcclTransfers* interDb = (tcclTransfers*)malloc(comm->tcclComm.maxGpuSubset * comm->tcclComm.interTransferEncMax * comm->tcclComm.interTransferEncMax * sizeof(tcclTransfers));
+  for (int i = 0; i < comm->tcclComm.maxGpuSubset; i++) {
+    for (int j = 0; j < comm->tcclComm.interTransferEncMax; j++) {
+      for (int k = 0; k < comm->tcclComm.interTransferEncMax; k++) {
+        tcclTransfers* transfers = tcclGetTransfersFromInterDb(comm, interDb, i, j, k);
         transfers->gbps = 0.0;
         transfers->num_transfers = 0;
+        transfers->transfers = (tcclTransfer*)malloc(comm->tcclComm.intraTransferLenMax * sizeof(tcclTransfer));
       }
     }
   }
 
   // Init intra db
-  tcclTransfers* intraDb = (tcclTransfers*)malloc(TCCL_MAX_GPU_SUBSET * sizeof(tcclTransfers));
-  for (int i = 0; i < TCCL_MAX_GPU_SUBSET; i++) {
+  tcclTransfers* intraDb = (tcclTransfers*)malloc(comm->tcclComm.maxGpuSubset * sizeof(tcclTransfers));
+  for (int i = 0; i < comm->tcclComm.maxGpuSubset; i++) {
     tcclTransfers* tfs = tcclGetTransfersFromIntraDb(intraDb, i);
     tfs->gbps = 0.0;
     tfs->num_transfers = 0;
+    tfs->transfers = (tcclTransfer*)malloc(comm->tcclComm.intraTransferLenMax * sizeof(tcclTransfer));
   }
 
-  ezxml_t root = ezxml_parse_file(fn);
-  ezxml_t intra = ezxml_child(root, "intra");
-  ezxml_t inter = ezxml_child(root, "inter");
   // parse intra db
   for (ezxml_t subset = ezxml_child(intra, "subset"); subset; subset = subset->next) {
     PARSE_INT(gpus, subset, "gpus");
-    if (gpus < 0 || gpus >= TCCL_MAX_GPU_SUBSET) {
+    if (gpus < 0 || gpus >= comm->tcclComm.maxGpuSubset) {
       WARN("gpus=%d is out of range", gpus);
       return ncclInternalError;
     }
     for (ezxml_t transfers = ezxml_child(subset, "transfers"); transfers; transfers = transfers->next) {
-      tcclTransfers tfs;
-      NCCLCHECK(parseTransfers(transfers, tcclGetTransfersFromIntraDb(intraDb, gpus), false, NULL, NULL));
+      NCCLCHECK(parseTransfers(comm, transfers, tcclGetTransfersFromIntraDb(intraDb, gpus), false, NULL, NULL));
     }
   }
 
   // parse inter db
   for (ezxml_t subset = ezxml_child(inter, "subset"); subset; subset = subset->next) {
     PARSE_INT(gpus, subset, "gpus");
-    if (gpus < 0 || gpus >= TCCL_MAX_GPU_SUBSET) {
+    if (gpus < 0 || gpus >= comm->tcclComm.maxGpuSubset) {
       WARN("gpus=%d is out of range", gpus);
       return ncclInternalError;
     }
     for (ezxml_t transfers = ezxml_child(subset, "transfers"); transfers; transfers = transfers->next) {
       int head, tail;
-      tcclTransfers tfs;
-      parseTransfers(transfers, &tfs, true, &head, &tail);
-      *tcclGetTransfersFromInterDb(interDb, gpus, head, tail) = tfs;
+      // Get head and tail first
+      parseTransfers(comm, transfers, NULL, true, &head, &tail);
+      // Now construct transfers
+      parseTransfers(comm, transfers, tcclGetTransfersFromInterDb(comm, interDb, gpus, head, tail), true, &head, &tail);
     }
   }
 
@@ -393,12 +452,12 @@ static ncclResult_t findMyselfInTransfers(ncclComm* comm, tcclTransfers* transfe
   return ncclSuccess;
 }
 
-#define TCCL_DP_IDX(n, h, t) ((n) * TCCL_INTER_TRANSFER_ENC_MAX * TCCL_INTER_TRANSFER_ENC_MAX + (h) * TCCL_INTER_TRANSFER_ENC_MAX + (t))
+#define TCCL_DP_IDX(n, h, t) ((n) * comm->tcclComm.interTransferEncMax * comm->tcclComm.interTransferEncMax + (h) * comm->tcclComm.interTransferEncMax + (t))
 ncclResult_t tcclInit(ncclComm *comm, ncclTopoGraph* graph) {
   ncclResult_t ret = ncclSuccess;
 
   if (ncclParamTcclForceP2p() && ncclParamTcclForceShm()) {
-    WARN("Cannot force both P2P and SHM transports (TCCL_FORCE_P2P=%d, TCCL_FORCE_SHM=%d)", ncclParamTcclForceP2p(), ncclParamTcclForceShm());
+    WARN("Cannot force both P2P and SHM transports (TCCL_FORCE_P2P=%ld, TCCL_FORCE_SHM=%ld)", ncclParamTcclForceP2p(), ncclParamTcclForceShm());
     return ncclInternalError;
   }
 
@@ -410,12 +469,12 @@ ncclResult_t tcclInit(ncclComm *comm, ncclTopoGraph* graph) {
   int* gpu_bitmasks = NULL;
   tcclTransfers *interDb = NULL;
   tcclTransfers *intraDb = NULL;
-  NCCLCHECKGOTO(ncclCalloc(&bestBw, comm->nNodes * TCCL_INTER_TRANSFER_ENC_MAX * TCCL_INTER_TRANSFER_ENC_MAX), ret, fail);
-  NCCLCHECKGOTO(ncclCalloc(&bestBwIdx, comm->nNodes * TCCL_INTER_TRANSFER_ENC_MAX * TCCL_INTER_TRANSFER_ENC_MAX), ret, fail);
+  NCCLCHECKGOTO(tcclGetDbFromXml(comm, &interDb, &intraDb), ret, fail);
+  NCCLCHECKGOTO(ncclCalloc(&bestBw, comm->nNodes * comm->tcclComm.interTransferEncMax * comm->tcclComm.interTransferEncMax), ret, fail);
+  NCCLCHECKGOTO(ncclCalloc(&bestBwIdx, comm->nNodes * comm->tcclComm.interTransferEncMax * comm->tcclComm.interTransferEncMax), ret, fail);
   NCCLCHECKGOTO(ncclCalloc(&allNextNvmlIdx, comm->nRanks), ret, fail);
   NCCLCHECKGOTO(ncclCalloc(&prevRanks, comm->nRanks), ret, fail);
   NCCLCHECKGOTO(ncclCalloc(&gpu_bitmasks, comm->nNodes), ret, fail);
-  NCCLCHECKGOTO(tcclGetDbFromXml(&interDb, &intraDb), ret, fail);
 
   if (comm->nRanks <= 1) {
     WARN("TCCL does not handle single GPU communicator.");
@@ -434,28 +493,28 @@ ncclResult_t tcclInit(ncclComm *comm, ncclTopoGraph* graph) {
     // Inter DP
     for (int n = 0; n < comm->nNodes; ++n) {
       INFO(NCCL_TCCL, "Node %d: gpu_bitmask=%d", n, gpu_bitmasks[n]);
-      if (gpu_bitmasks[n] >= TCCL_MAX_GPU_SUBSET) {
+      if (gpu_bitmasks[n] >= comm->tcclComm.maxGpuSubset) {
         WARN("Too many GPUs in the same node: node=%d gpu_bitmask=%d", n, gpu_bitmasks[n]);
         ret = ncclInternalError;
         goto fail;
       }
     }
     // DP init
-    for (int h = 0; h < TCCL_INTER_TRANSFER_ENC_MAX; ++h) {
-      for (int t = 0; t < TCCL_INTER_TRANSFER_ENC_MAX; ++t) {
-        bestBw[TCCL_DP_IDX(0, h, t)] = tcclGetTransfersFromInterDb(interDb, gpu_bitmasks[0], h, t)->gbps;
-        if (bestBw[h * TCCL_INTER_TRANSFER_ENC_MAX + t] > 0) {
+    for (int h = 0; h < comm->tcclComm.interTransferEncMax; ++h) {
+      for (int t = 0; t < comm->tcclComm.interTransferEncMax; ++t) {
+        bestBw[TCCL_DP_IDX(0, h, t)] = tcclGetTransfersFromInterDb(comm, interDb, gpu_bitmasks[0], h, t)->gbps;
+        if (bestBw[h * comm->tcclComm.interTransferEncMax + t] > 0) {
           TRACE(NCCL_TCCL, "TCCL DP: h=%d, t=%d, bw=%.2lf", h, t, bestBw[TCCL_DP_IDX(0, h, t)]);
         }
       }
     }
     // DP solve
     for (int n = 1; n < comm->nNodes; ++n) {
-      for (int h = 0; h < TCCL_INTER_TRANSFER_ENC_MAX; ++h) {
-        for (int t = 0; t < TCCL_INTER_TRANSFER_ENC_MAX; ++t) {
-          for (int x = 0; x < TCCL_INTER_TRANSFER_ENC_MAX; ++x) {
+      for (int h = 0; h < comm->tcclComm.interTransferEncMax; ++h) {
+        for (int t = 0; t < comm->tcclComm.interTransferEncMax; ++t) {
+          for (int x = 0; x < comm->tcclComm.interTransferEncMax; ++x) {
             double* curBestBw = &bestBw[TCCL_DP_IDX(n, h, t)];
-            double newBestBw = std::min(bestBw[TCCL_DP_IDX(n - 1, h, x)], tcclGetTransfersFromInterDb(interDb, gpu_bitmasks[n], x, t)->gbps);
+            double newBestBw = std::min(bestBw[TCCL_DP_IDX(n - 1, h, x)], tcclGetTransfersFromInterDb(comm, interDb, gpu_bitmasks[n], x, t)->gbps);
             if (*curBestBw < newBestBw) {
               TRACE(NCCL_TCCL, "TCCL DP: node=%d, h=%d, t=%d, x=%d, bw=%.2lf -> %.2lf", n, h, t, x, *curBestBw, newBestBw);
               *curBestBw = newBestBw;
@@ -468,7 +527,7 @@ ncclResult_t tcclInit(ncclComm *comm, ncclTopoGraph* graph) {
     double ringBestBw;
     int ringBestBwIdx;
     ringBestBw = 0;
-    for (int x = 0; x < TCCL_INTER_TRANSFER_ENC_MAX; ++x) {
+    for (int x = 0; x < comm->tcclComm.interTransferEncMax; ++x) {
       if (ringBestBw < bestBw[TCCL_DP_IDX(comm->nNodes - 1, x, x)]) {
         ringBestBw = bestBw[TCCL_DP_IDX(comm->nNodes - 1, x, x)];
         ringBestBwIdx = x;
@@ -488,10 +547,10 @@ ncclResult_t tcclInit(ncclComm *comm, ncclTopoGraph* graph) {
     for (int n = comm->nNodes - 1; n >= 0; --n) {
       int head = n == 0 ? ringBestBwIdx : bestBwIdx[TCCL_DP_IDX(n, ringBestBwIdx, curIdx)];
       int tail = curIdx;
-      tcclTransfer headTransfer = tcclDecodeInterTransfer(head);
-      tcclTransfer tailTransfer = tcclDecodeInterTransfer(tail);
+      tcclTransfer headTransfer = tcclDecodeInterTransfer(comm, head);
+      tcclTransfer tailTransfer = tcclDecodeInterTransfer(comm, tail);
       if (n == comm->rankToNode[comm->rank]) {
-        tcclTransfers* transfers = tcclGetTransfersFromInterDb(interDb, gpu_bitmasks[n], head, tail);
+        tcclTransfers* transfers = tcclGetTransfersFromInterDb(comm, interDb, gpu_bitmasks[n], head, tail);
         NCCLCHECKGOTO(findMyselfInTransfers(comm, transfers, headTransfer, tailTransfer, &nextNvmlIdx), ret, fail);
         break;
       }
@@ -576,6 +635,18 @@ fail:
   free(bestBwIdx);
   free(allNextNvmlIdx);
   free(prevRanks);
+  for (int i = 0; i < comm->tcclComm.maxGpuSubset; i++) {
+    for (int j = 0; j < comm->tcclComm.interTransferEncMax; j++) {
+      for (int k = 0; k < comm->tcclComm.interTransferEncMax; k++) {
+        tcclTransfers* transfers = tcclGetTransfersFromInterDb(comm, interDb, i, j, k);
+        free(transfers->transfers);
+      }
+    }
+  }
+  for (int i = 0; i < comm->tcclComm.maxGpuSubset; i++) {
+    tcclTransfers* tfs = tcclGetTransfersFromIntraDb(intraDb, i);
+    free(tfs->transfers);
+  }
   free(interDb);
   free(intraDb);
   return ret;

@@ -1,5 +1,6 @@
 /*************************************************************************
  * Copyright (c) 2016-2022, NVIDIA CORPORATION. All rights reserved.
+ * Modifications Copyright (c) 2024 Seoul National University. All rights reserved.
  *
  * See LICENSE.txt for license information
  ************************************************************************/

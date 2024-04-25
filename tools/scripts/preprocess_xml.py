@@ -7,6 +7,10 @@ import xml.etree.ElementTree as ET
 def main(args):
   root = ET.Element('root')
 
+  # Lets copy metadata
+  metadata = ET.parse(os.path.join(args.dir, 'metadata.xml')).getroot()
+  root.append(metadata)
+
   # Lets build intra data
   intra = ET.SubElement(root, 'intra')
   flist = glob.glob(os.path.join(args.dir, 'intra_*.xml'))

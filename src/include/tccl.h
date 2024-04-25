@@ -1,3 +1,9 @@
+/*************************************************************************
+ * Copyright (c) 2024 Seoul National University. All rights reserved.
+ *
+ * See LICENSE.txt for license information
+ ************************************************************************/
+
 #ifndef TCCL_H_
 #define TCCL_H_
 
@@ -5,10 +11,10 @@
 #include <numa.h>
 #include <numaif.h>
 
-#define TCCL_MAX_GPU 4
-#define TCCL_MAX_GPU_SUBSET (1 << TCCL_MAX_GPU)
-#define TCCL_INTER_TRANSFER_ENC_MAX 64 // (type, src_idx, dst_idx)
-#define TCCL_INTRA_TRANSFER_LEN_MAX (TCCL_MAX_GPU * 2)
+//#define TCCL_MAX_GPU 4
+//#define TCCL_MAX_GPU_SUBSET (1 << TCCL_MAX_GPU)
+//#define TCCL_INTER_TRANSFER_ENC_MAX 64 // (type, src_idx, dst_idx)
+//#define TCCL_INTRA_TRANSFER_LEN_MAX (TCCL_MAX_GPU * 2)
 
 enum tcclTransportType {
   TCCL_TRANSPORT_TYPE_P2P = 0,
@@ -38,6 +44,11 @@ struct tcclCommInfo {
   tcclTransportOpt recvOpt;
   // dirty hack to tell *CanConnect function that it's send or recv. set by "transport.cc".
   int tmpIsSend;
+  int maxGpu;
+  int maxGpuSubset;
+  int interTransferEncMax;
+  int intraTransferLenMax;
+  int numBitsIdx;
 };
 
 struct tcclTransfer {
@@ -49,7 +60,7 @@ struct tcclTransfer {
 struct tcclTransfers {
   double gbps;
   int num_transfers;
-  tcclTransfer transfers[TCCL_INTRA_TRANSFER_LEN_MAX];
+  tcclTransfer* transfers;
 };
 
 extern const int tcclP2pTransportSendResourceMemcpyOffset;
@@ -74,39 +85,6 @@ enum tcclTransferType {
 
 enum tcclInterTransferType {
 };
-
-inline tcclTransfer tcclDecodeInterTransfer(int encoded) {
-  int type_int;
-  switch (encoded & 0x3) {
-    case 0:
-      type_int = TCCL_TRANSFER_TYPE_GPU_GPU_INTER; break;
-    case 1:
-      type_int = TCCL_TRANSFER_TYPE_GPU_CPU_INTER; break;
-    case 2:
-      type_int = TCCL_TRANSFER_TYPE_CPU_GPU_INTER; break;
-    case 3:
-      type_int = TCCL_TRANSFER_TYPE_CPU_CPU_INTER; break;
-  }
-  int src_idx = (encoded >> 2) & 0x3;
-  int dst_idx = (encoded >> 4) & 0x3;
-  return {type_int, src_idx, dst_idx};
-}
-
-inline int tcclEncodeInterTransfer(const char* type, int src_idx, int dst_idx) {
-  int type_int = -1;
-  if (strcmp(type, "GPU_GPU_INTER") == 0) {
-    type_int = 0;
-  } else if (strcmp(type, "GPU_CPU_INTER") == 0) {
-    type_int = 1;
-  } else if (strcmp(type, "CPU_GPU_INTER") == 0) {
-    type_int = 2;
-  } else if (strcmp(type, "CPU_CPU_INTER") == 0) {
-    type_int = 3;
-  } else {
-    return -1;
-  }
-  return type_int | (src_idx << 2) | (dst_idx << 4);
-}
 
 inline int tcclEncodeIntraTransfer(const char* type) {
   int type_int = -1;

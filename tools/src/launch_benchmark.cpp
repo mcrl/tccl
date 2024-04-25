@@ -163,6 +163,20 @@ int main(int argc, char** argv) {
   if (rank == 0) {
     std::map<std::set<int>, double> cache;
 
+    // Metadata
+    {
+      char xmlfn[2048];
+      sprintf(xmlfn, "%s/metadata.xml", dir_name);
+      FILE *fp = fopen(xmlfn, "w");
+      tinyxml2::XMLPrinter printer(fp);
+      printer.OpenElement("metadata");
+      printer.PushAttribute("num_gpus", conf.num_gpus);
+      printer.PushAttribute("num_numa", conf.num_numa);
+      printer.PushAttribute("num_bits_idx", conf.num_bits_idx);
+      printer.CloseElement();
+      fclose(fp);
+    }
+
     // Intra
     for (int gpu_mask = 0; gpu_mask < (1 << conf.num_gpus); ++gpu_mask) {
       if (__builtin_popcount(gpu_mask) < 2) continue;
